@@ -1,46 +1,58 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import re
 
 # Configuración de la página
 st.set_page_config(page_title="Dashboard Gestión Inmovision 2026", layout="wide", page_icon="📊")
 
-# --- SECCIÓN LATERAL: CONFIGURACIÓN DE LINKS ---
-st.sidebar.header("⚙️ Configuración de Orígenes de Datos")
+# --- ESTILO PARA ELIMINAR DECIMALES INNECESARIOS EN TABLAS ---
+st.markdown("""
+    <style>
+    [data-testid="stTable"] td { text-align: right !important; }
+    </style>
+    """, unsafe_allow_html=True)
 
-default_sheet_cortes = "1XTwe17xvug4FN5jC0pFjVDQ6W61PKR1j"
-default_sheet_contratos = "1HjDMAggJ5esJwqFEQ891MnPYhr7y-CAF"
-default_sheet_ins = "19TJ6ljgBusN5EGxBOJYih1xmF7oIReJE"
+# --- FUNCIÓN PARA EXTRAER ID DEL LINK ---
+def extraer_id(link, default):
+    if not link: return default
+    match = re.search(r"/d/([a-zA-Z0-9-_]+)", link)
+    return match.group(1) if match else link
 
-with st.sidebar.expander("🔗 Editar IDs de Google Sheets"):
-    sheet_id_cortes = st.text_input("ID Sheet Cortes:", default_sheet_cortes)
-    sheet_id_contratos = st.text_input("ID Sheet Contratos:", default_sheet_contratos)
-    sheet_id_ins = st.text_input("ID Sheet Instalaciones:", default_sheet_ins)
+# --- SECCIÓN LATERAL ---
+st.sidebar.header("⚙️ Configuración de Datos")
+def_link_cortes = "https://docs.google.com/spreadsheets/d/1XTwe17xvug4FN5jC0pFjVDQ6W61PKR1j"
+def_link_contratos = "https://docs.google.com/spreadsheets/d/1HjDMAggJ5esJwqFEQ891MnPYhr7y-CAF"
+def_link_ins = "https://docs.google.com/spreadsheets/d/19TJ6ljgBusN5EGxBOJYih1xmF7oIReJE"
+
+with st.sidebar.expander("🔗 Pegar Links de Google Sheets", expanded=True):
+    url_cortes = st.text_input("Link Sheet Cortes:", def_link_cortes)
+    url_contratos = st.text_input("Link Sheet Contratos:", def_link_contratos)
+    url_ins = st.text_input("Link Sheet Instalaciones:", def_link_ins)
+
+sheet_id_cortes = extraer_id(url_cortes, "1XTwe17xvug4FN5jC0pFjVDQ6W61PKR1j")
+sheet_id_contratos = extraer_id(url_contratos, "1HjDMAggJ5esJwqFEQ891MnPYhr7y-CAF")
+sheet_id_ins = extraer_id(url_ins, "19TJ6ljgBusN5EGxBOJYih1xmF7oIReJE")
 
 # --- FUNCIONES DE CARGA Y PROCESAMIENTO ---
 @st.cache_data(ttl=300)
 def load_raw_data(s_cortes, s_contratos, s_ins):
-    url_cortes = f"https://docs.google.com/spreadsheets/d/{s_cortes}/gviz/tq?tqx=out:csv&sheet=CORTES%20(2)"
-    gid_contratos = "494293159"
-    url_contratos = f"https://docs.google.com/spreadsheets/d/{s_contratos}/export?format=csv&gid={gid_contratos}"
-    URL_INS = f"https://docs.google.com/spreadsheets/d/{s_ins}/gviz/tq?tqx=out:csv&sheet=Hoja1"
-
+    url_c = f"https://docs.google.com/spreadsheets/d/{s_cortes}/gviz/tq?tqx=out:csv&sheet=CORTES%20(2)"
+    url_con = f"https://docs.google.com/spreadsheets/d/{s_contratos}/export?format=csv&gid=494293159"
+    url_i = f"https://docs.google.com/spreadsheets/d/{s_ins}/gviz/tq?tqx=out:csv&sheet=Hoja1"
     try:
-        df_contratos = pd.read_csv(url_contratos)
+        df_contratos = pd.read_csv(url_con)
         df_contratos['FechaActivacionContrato'] = pd.to_datetime(df_contratos['FechaActivacionContrato'], errors='coerce')
     except: df_contratos = None
-        
-    try: df_cortes_raw = pd.read_csv(url_cortes, header=None)
+    try: df_cortes_raw = pd.read_csv(url_c, header=None)
     except: df_cortes_raw = None
-
     try:
-        df_ins = pd.read_csv(URL_INS)
+        df_ins = pd.read_csv(url_i)
         df_ins.columns = df_ins.columns.str.strip()
-        col_fecha = 'FECHA' if 'FECHA' in df_ins.columns else df_ins.columns[0]
-        df_ins[col_fecha] = pd.to_datetime(df_ins[col_fecha], dayfirst=True, errors='coerce')
-        df_ins = df_ins.dropna(subset=[col_fecha])
+        col_f = 'FECHA' if 'FECHA' in df_ins.columns else df_ins.columns[0]
+        df_ins[col_f] = pd.to_datetime(df_ins[col_f], dayfirst=True, errors='coerce')
+        df_ins = df_ins.dropna(subset=[col_f])
     except: df_ins = None
-
     return df_cortes_raw, df_contratos, df_ins
 
 def extract_smart_table(df_raw, title_keyword):
@@ -99,7 +111,7 @@ def mostrar_graficas_seccion(df_plot, titulo, color='#636EFA'):
         with c1: st.plotly_chart(px.bar(df_sin_total, x='MOTIVO', y='TOTAL_REAL', title=f"Barras: {titulo}", color_discrete_sequence=[color], text_auto=True), use_container_width=True)
         with c2: st.plotly_chart(px.pie(df_sin_total, names='MOTIVO', values='TOTAL_REAL', title=f"Distribución: {titulo}", hole=0.4), use_container_width=True)
         with st.expander(f"📥 Ver tabla detallada"):
-            st.dataframe(df_plot, use_container_width=True, hide_index=True)
+            st.dataframe(df_plot.style.format(precision=0), use_container_width=True, hide_index=True)
 
 def procesar_trimestral(df):
     if df is None: return None
@@ -118,7 +130,7 @@ def plot_contract_distribution(df, columna, titulo, color_hex):
     df_grouped = df_grouped.sort_values(by='Cantidad', ascending=False).head(10)
     if not df_grouped.empty:
         fig = px.bar(df_grouped, x='Cantidad', y=columna, orientation='h', title=f"{titulo} (Top 10)", text='Cantidad', color_discrete_sequence=[color_hex])
-        fig.update_layout(yaxis={'categoryorder':'total ascending'}, xaxis_title="Contratos", yaxis_title=None, height=400)
+        fig.update_layout(yaxis={'categoryorder':'total ascending'}, height=400)
         st.plotly_chart(fig, use_container_width=True)
 
 # --- FLUJO PRINCIPAL ---
@@ -150,58 +162,66 @@ try:
 
     with tab1:
         v_c = df_c_anual[df_c_anual['MOTIVO'].str.contains('TOTAL', case=False)]['TOTAL_REAL'].iloc[0] if df_c_anual is not None else 0
-        df_r_m = df_r_anual[~df_r_anual['MOTIVO'].str.contains('TOTAL', case=False)] if df_r_anual is not None else None
-        v_r = df_r_m['TOTAL_REAL'].sum() if df_r_m is not None else 0
+        v_r = df_r_anual[df_r_anual['MOTIVO'].str.contains('TOTAL', case=False)]['TOTAL_REAL'].iloc[0] if df_r_anual is not None else 0
         
         m1, m2, m3 = st.columns(3)
-        m1.metric("Cortes Voluntarios", f"{int(v_c)}")
-        m2.metric("Clientes Recuperados", f"{int(v_r)}")
-        m3.metric("Neto Abandonos", f"{int(v_c - v_r)}", delta="Bajas Finales", delta_color="inverse")
+        m1.metric("Cortes Voluntarios", f"{int(v_c):,}")
+        m2.metric("Clientes Recuperados", f"{int(v_r):,}")
+        m3.metric("Neto Abandonos", f"{int(v_c - v_r):,}", delta="Bajas Finales", delta_color="inverse")
 
         st.divider()
-        st.subheader("🎯 Análisis de Motivos Anual")
+        # --- TENDENCIA ANUAL CON NÚMEROS ---
+        fig_anual = px.line(df_l, x='Mes', y=['Cortes', 'Recuperados', 'Neto'], title="Tendencia Anual de Bajas y Recuperaciones", markers=True)
+        # ESTA ES LA LÍNEA QUE DEBES CAMBIAR:
+        fig_anual.update_traces(mode='lines+markers+text', textposition="top center", texttemplate='%{y}')
+        st.plotly_chart(fig_anual, use_container_width=True)
+
+        st.divider()
         col_rank1, col_rank2 = st.columns(2)
         with col_rank1: 
             if df_c_anual is not None: mostrar_ranking_motivos(df_c_anual, 'TOTAL_REAL', "Ranking Anual de Cortes", 'Reds')
         with col_rank2: 
             if df_r_anual is not None: mostrar_ranking_motivos(df_r_anual, 'TOTAL_REAL', "Ranking Anual de Recuperaciones", 'Greens')
 
-        st.divider()
         mostrar_graficas_seccion(df_c_anual, "Cortes Voluntarios (Anual)", "#EF553B")
-        st.divider()
         mostrar_graficas_seccion(df_r_anual, "Clientes Recuperados (Anual)", "#00CC96")
 
     with tab2:
         st.header("📅 Seguimiento por Trimestre (Cortes)")
         df_c_tri = procesar_trimestral(df_c_anual)
         df_r_tri = procesar_trimestral(df_r_anual)
-        
-        if df_c_tri is not None and df_r_tri is not None:
-            sel_tri = st.selectbox("Seleccionar Período (Motivos):", ['T1', 'T2', 'T3', 'T4'])
+        if df_c_tri is not None:
+            sel_tri = st.selectbox("Seleccionar Período:", ['T1', 'T2', 'T3', 'T4'])
+            # --- MÉTRICAS TRIMESTRALES ---
+            v_c_tri = df_c_tri[sel_tri].sum()
+            v_r_tri = df_r_tri[sel_tri].sum()
+            
+            c_m1, c_m2, c_m3 = st.columns(3)
+            c_m1.metric("Cortes Voluntarios", f"{int(v_c_tri):,}")
+            c_m2.metric("Clientes Recuperados", f"{int(v_r_tri):,}")
+            c_m3.metric("Neto Abandonos", f"{int(v_c_tri - v_r_tri):,}", delta="Bajas Finales", delta_color="inverse")
+            st.divider()
+            # -----------------------------
             periodos = {'T1':['ENERO','FEBRERO','MARZO'], 'T2':['ABRIL','MAYO','JUNIO'], 'T3':['JULIO','AGOSTO','SEPTIEMBRE'], 'T4':['OCTUBRE','NOVIEMBRE','DICIEMBRE']}
             df_tri_l = df_l[df_l['Mes'].isin(periodos[sel_tri])]
             
-            fig_tri_l = px.line(df_tri_l, x='Mes', y=['Cortes', 'Recuperados', 'Neto'], title=f"Tendencia Mensual en {sel_tri}", markers=True)
-            for i, col in enumerate(['Cortes', 'Recuperados', 'Neto']):
-                fig_tri_l.data[i].text = df_tri_l[col]
-                fig_tri_l.data[i].mode = 'lines+markers+text'
-            st.plotly_chart(fig_tri_l, use_container_width=True)
+            # --- TENDENCIA TRIMESTRAL CON NÚMEROS ---
+            fig_t = px.line(df_tri_l, x='Mes', y=['Cortes', 'Recuperados', 'Neto'], title=f"Tendencia {sel_tri}", markers=True)
+            fig_t.update_traces(mode='lines+markers+text', textposition="top center", texttemplate='%{y}')
+            st.plotly_chart(fig_t, use_container_width=True)
             
-            st.divider()
-            st.subheader(f"🎯 Análisis de Motivos en {sel_tri}")
             ct1, ct2 = st.columns(2)
             with ct1: mostrar_ranking_motivos(df_c_tri, sel_tri, f"Cortes en {sel_tri}", 'Reds')
             with ct2: mostrar_ranking_motivos(df_r_tri, sel_tri, f"Recuperaciones en {sel_tri}", 'Greens')
 
             st.divider()
-            # Restauración de gráficas de desglose trimestral
             df_c_tri_p = df_c_tri[['MOTIVO', sel_tri]].rename(columns={sel_tri: 'TOTAL_REAL'})
             mostrar_graficas_seccion(df_c_tri_p, f"Detalle Cortes {sel_tri}", "#EF553B")
             st.divider()
             df_r_tri_p = df_r_tri[['MOTIVO', sel_tri]].rename(columns={sel_tri: 'TOTAL_REAL'})
             mostrar_graficas_seccion(df_r_tri_p, f"Detalle Recuperaciones {sel_tri}", "#00CC96")
 
-    # --- LÓGICA DE DATOS PARA CONTRATOS ---
+    # --- LÓGICA DE CONTRATOS ---
     base_n = [0]*12
     if data_ins is not None:
         try:
@@ -209,105 +229,69 @@ try:
             col_servicio = next((c for c in df_ins_filtered.columns if 'SERVICIO' in c.upper()), None)
             col_estado = next((c for c in df_ins_filtered.columns if 'ESTADO' in c.upper()), None)
             if col_servicio and col_estado:
-                servicios_validos = ['CROSSELLING', 'INSTALACIÓN CÁMARA', 'INSTALACION ESPECIAL', 'INSTALACIÓN NUEVA', 'SMART HOME']
-                mask_nuevos = (df_ins_filtered[col_servicio].astype(str).str.strip().str.upper().isin(servicios_validos)) & (df_ins_filtered[col_estado].astype(str).str.strip().str.upper() == 'INSTALADO')
-                df_ins_filtered['M_NUM'] = df_ins_filtered[col_fecha_ins].dt.month
-                n_counts = df_ins_filtered[mask_nuevos]['M_NUM'].value_counts()
-                for m, v in n_counts.items(): 
-                    if 1 <= m <= 12: base_n[int(m)-1] = int(v)
+                servicios_v = ['CROSSELLING', 'INSTALACIÓN CÁMARA', 'INSTALACION ESPECIAL', 'INSTALACIÓN NUEVA', 'SMART HOME']
+                mask = (df_ins_filtered[col_servicio].astype(str).str.strip().str.upper().isin(servicios_v)) & (df_ins_filtered[col_estado].astype(str).str.strip().str.upper() == 'INSTALADO')
+                n_counts = df_ins_filtered[mask][col_fecha_ins].dt.month.value_counts()
+                for m, v in n_counts.items(): base_n[int(m)-1] = int(v)
         except: pass
 
     if data_contratos is not None:
-        data_contratos['FechaActivacionContrato'] = pd.to_datetime(data_contratos['FechaActivacionContrato'], errors='coerce')
-        data_contratos = data_contratos.dropna(subset=['FechaActivacionContrato'])
-        ultima_fecha_real = data_contratos['FechaActivacionContrato'].max()
-        
-        df_final = pd.DataFrame({'Mes_Num': range(1, 13), 'Mes': meses_list})
-        totales_cartera, activaciones_reales = [], []
-
+        ultima_fecha = data_contratos['FechaActivacionContrato'].max()
+        df_final = pd.DataFrame({'Mes': meses_list})
+        totales_c, activaciones_r = [], []
         for mes in range(1, 13):
-            fecha_inicio_mes = pd.Timestamp(year=año_seleccionado, month=mes, day=1)
-            if fecha_inicio_mes > ultima_fecha_real: 
-                totales_cartera.append(0); activaciones_reales.append(0)
+            fecha_ini = pd.Timestamp(year=año_seleccionado, month=mes, day=1)
+            if fecha_ini > ultima_fecha: 
+                totales_c.append(0); activaciones_r.append(0)
             else:
-                fecha_corte = min(fecha_inicio_mes + pd.offsets.MonthEnd(0), ultima_fecha_real)
-                totales_cartera.append(data_contratos[data_contratos['FechaActivacionContrato'] <= fecha_corte].shape[0])
-                activaciones = data_contratos[(data_contratos['FechaActivacionContrato'].dt.month == mes) & (data_contratos['FechaActivacionContrato'].dt.year == año_seleccionado)].shape[0]
-                activaciones_reales.append(activaciones)
-
-        df_final['Total Contratos'] = totales_cartera
+                fecha_c = min(fecha_ini + pd.offsets.MonthEnd(0), ultima_fecha)
+                totales_c.append(data_contratos[data_contratos['FechaActivacionContrato'] <= fecha_c].shape[0])
+                activaciones_r.append(data_contratos[(data_contratos['FechaActivacionContrato'].dt.month == mes) & (data_contratos['FechaActivacionContrato'].dt.year == año_seleccionado)].shape[0])
+        
+        df_final['Total Contratos'] = totales_c
         df_final['Nuevos Contratos'] = base_n
         df_final['Neto_Abandono'] = s_n
-        df_final['Churn Rate (%)'] = df_final.apply(lambda x: (x['Neto_Abandono'] / x['Total Contratos'] * 100) if x['Total Contratos'] > 0 else 0, axis=1)
-        df_final['Acquisition Rate (%)'] = df_final.apply(lambda x: (x['Nuevos Contratos'] / x['Total Contratos'] * 100) if x['Total Contratos'] > 0 else 0, axis=1)
+        df_final['Churn Rate (%)'] = df_final.apply(lambda x: (x['Neto_Abandono']/x['Total Contratos']*100) if x['Total Contratos']>0 else 0, axis=1)
+        df_final['Acquisition Rate (%)'] = df_final.apply(lambda x: (x['Nuevos Contratos']/x['Total Contratos']*100) if x['Total Contratos']>0 else 0, axis=1)
         df_final['NROD (%)'] = df_final['Acquisition Rate (%)'] - df_final['Churn Rate (%)']
 
         with tab3:
             st.header(f"📉 Análisis Trimestral Contratos ({año_seleccionado})")
-            sel_tri_c = st.selectbox("Seleccionar Trimestre:", ['T1', 'T2', 'T3', 'T4'], key='tri_c')
-            periodos_c = {'T1':['ENERO','FEBRERO','MARZO'], 'T2':['ABRIL','MAYO','JUNIO'], 'T3':['JULIO','AGOSTO','SEPTIEMBRE'], 'T4':['OCTUBRE','NOVIEMBRE','DICIEMBRE']}
-            df_tri_filtered = df_final[df_final['Mes'].isin(periodos_c[sel_tri_c])].copy()
+            sel_tri_c = st.selectbox("Trimestre:", ['T1', 'T2', 'T3', 'T4'], key='tri_c_k')
+            p_c = {'T1':['ENERO','FEBRERO','MARZO'], 'T2':['ABRIL','MAYO','JUNIO'], 'T3':['JULIO','AGOSTO','SEPTIEMBRE'], 'T4':['OCTUBRE','NOVIEMBRE','DICIEMBRE']}
+            df_tri_f = df_final[df_final['Mes'].isin(p_c[sel_tri_c])].copy()
             
-            # Gráfica de evolución trimestral
-            fig_t = px.line(df_tri_filtered, x='Mes', y=['Churn Rate (%)', 'Acquisition Rate (%)', 'NROD (%)'], 
-                            markers=True, title=f"Evolución de Tasas en {sel_tri_c}",
-                            color_discrete_map={'Churn Rate (%)': '#EF553B', 'Acquisition Rate (%)': '#00CC96', 'NROD (%)': '#636EFA'})
-            fig_t.update_traces(textposition="top center", texttemplate='%{y:.1f}%', mode='lines+markers+text')
-            st.plotly_chart(fig_t, use_container_width=True)
+            # --- TASAS TRIMESTRALES CON NÚMEROS (%) ---
+            fig_tri_c = px.line(df_tri_f, x='Mes', y=['Churn Rate (%)', 'Acquisition Rate (%)', 'NROD (%)'], markers=True, title=f"Tasas {sel_tri_c}")
+            fig_tri_c.update_traces(mode='lines+markers+text', textposition="top center", texttemplate='%{y:.1f}%')
+            st.plotly_chart(fig_tri_c, use_container_width=True)
 
-            # TABLAS DE TASAS (RESTAURADAS TODAS)
-            st.subheader("📋 Métricas de Churn (Abandono)")
-            df_churn_t = df_tri_filtered[['Mes', 'Total Contratos', 'Neto_Abandono', 'Churn Rate (%)']].copy()
-            df_churn_t['Churn Rate (%)'] = df_churn_t['Churn Rate (%)'].map('{:.2f}%'.format)
-            st.table(df_churn_t.set_index('Mes').T)
+            st.subheader("📋 Métricas Consolidadas")
+            # Tablas con formato corregido
+            st.table(df_tri_f[['Mes', 'Total Contratos', 'Neto_Abandono', 'Churn Rate (%)']].set_index('Mes').T.style.format(lambda x: f"{int(x):,}" if x >= 100 else f"{x:.2f}%"))
+            st.table(df_tri_f[['Mes', 'Nuevos Contratos', 'Total Contratos', 'Acquisition Rate (%)']].set_index('Mes').T.style.format(lambda x: f"{int(x):,}" if x >= 100 else f"{x:.2f}%"))
+            st.table(df_tri_f[['Mes', 'Acquisition Rate (%)', 'Churn Rate (%)', 'NROD (%)']].set_index('Mes').T.style.format("{:.2f}%"))
 
-            st.subheader("🎯 Métricas de Acquisition (Nuevos)")
-            df_acq_t = df_tri_filtered[['Mes', 'Nuevos Contratos', 'Total Contratos', 'Acquisition Rate (%)']].copy()
-            df_acq_t['Acquisition Rate (%)'] = df_acq_t['Acquisition Rate (%)'].map('{:.2f}%'.format)
-            st.table(df_acq_t.set_index('Mes').T)
-
-            st.subheader("📈 Métricas NROD (%)")
-            df_nrod_t = df_tri_filtered[['Mes', 'Acquisition Rate (%)', 'Churn Rate (%)', 'NROD (%)']].copy()
-            for col in ['Acquisition Rate (%)', 'Churn Rate (%)', 'NROD (%)']: 
-                df_nrod_t[col] = df_nrod_t[col].map('{:.2f}%'.format)
-            st.table(df_nrod_t.set_index('Mes').T)
-            
             st.divider()
-            # Distribución de contratos en el trimestre
-            st.subheader(f"📊 Distribución de Cartera en {sel_tri_c}")
             p_num = {'T1':[1,2,3], 'T2':[4,5,6], 'T3':[7,8,9], 'T4':[10,11,12]}[sel_tri_c]
-            df_contratos_tri = data_contratos[data_contratos['FechaActivacionContrato'].dt.month.isin(p_num)]
-            plot_contract_distribution(df_contratos_tri, 'Elementos', f"Planes en {sel_tri_c}", '#AB63FA')
+            df_c_tri_det = data_contratos[data_contratos['FechaActivacionContrato'].dt.month.isin(p_num)]
+            plot_contract_distribution(df_c_tri_det, 'Elementos', f"Planes {sel_tri_c}", '#AB63FA')
 
         with tab4:
-            st.header(f"📈 Reporte Mensual ({año_seleccionado})")
-            df_plot_m = df_final[df_final['Total Contratos'] > 0]
-            if not df_plot_m.empty:
-                fig_m = px.line(df_plot_m, x='Mes', y=['Churn Rate (%)', 'Acquisition Rate (%)', 'NROD (%)'], 
-                                markers=True, title="Evolución Mensual de Tasas",
-                                color_discrete_map={'Churn Rate (%)': '#EF553B', 'Acquisition Rate (%)': '#00CC96', 'NROD (%)': '#636EFA'})
-                fig_m.update_traces(textposition="top center", texttemplate='%{y:.1f}%', mode='lines+markers+text')
-                st.plotly_chart(fig_m, use_container_width=True)
-
-            st.subheader("📋 Resumen Anual de Tasas")
-            st.write("**Churn Rate (%)**")
-            df_c_m = df_final[['Mes', 'Total Contratos', 'Neto_Abandono', 'Churn Rate (%)']].copy()
-            df_c_m['Churn Rate (%)'] = df_c_m['Churn Rate (%)'].map('{:.2f}%'.format)
-            st.table(df_c_m.set_index('Mes').T)
-
-            st.write("**Acquisition Rate (%)**")
-            df_a_m = df_final[['Mes', 'Nuevos Contratos', 'Acquisition Rate (%)']].copy()
-            df_a_m['Acquisition Rate (%)'] = df_a_m['Acquisition Rate (%)'].map('{:.2f}%'.format)
-            st.table(df_a_m.set_index('Mes').T)
-
-            st.write("**NROD (%)**")
-            df_n_m = df_final[['Mes', 'NROD (%)']].copy()
-            df_n_m['NROD (%)'] = df_n_m['NROD (%)'].map('{:.2f}%'.format)
-            st.table(df_n_m.set_index('Mes').T)
+            st.header(f"📈 Reporte Mensual Completo ({año_seleccionado})")
+            # --- TASAS MENSUALES CON NÚMEROS (%) ---
+            fig_m = px.line(df_final[df_final['Total Contratos']>0], x='Mes', y=['Churn Rate (%)', 'Acquisition Rate (%)', 'NROD (%)'], markers=True)
+            fig_m.update_traces(mode='lines+markers+text', textposition="top center", texttemplate='%{y:.1f}%')
+            st.plotly_chart(fig_m, use_container_width=True)
+            
+            st.subheader("📋 Resumen Anual")
+            st.table(df_final[['Mes', 'Total Contratos', 'Churn Rate (%)']].set_index('Mes').T.style.format(lambda x: f"{int(x):,}" if x >= 100 else f"{x:.2f}%"))
+            st.table(df_final[['Mes', 'Nuevos Contratos', 'Acquisition Rate (%)']].set_index('Mes').T.style.format(lambda x: f"{int(x):,}" if x >= 100 else f"{x:.2f}%"))
+            st.table(df_final[['Mes', 'NROD (%)']].set_index('Mes').T.style.format("{:.2f}%"))
 
             st.divider()
             c1, c2 = st.columns(2)
-            with c1: plot_contract_distribution(data_contratos, 'NombreFormaPago', "Formas de Pago (Anual)", '#636EFA')
-            with c2: plot_contract_distribution(data_contratos, 'NombreZona', "Distribución por Zonas", '#00CC96')
+            with c1: plot_contract_distribution(data_contratos, 'NombreFormaPago', "Formas de Pago", '#636EFA')
+            with c2: plot_contract_distribution(data_contratos, 'NombreZona', "Zonas", '#00CC96')
 
 except Exception as e: st.error(f"Error detectado: {e}")
